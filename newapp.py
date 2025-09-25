@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import pytesseract
 from PIL import Image
-import io
 import os
+from fuzzywuzzy import fuzz
 
 # --- CONFIG ---
 DATA_PATH = "data/certificates.csv"
@@ -19,8 +19,8 @@ def load_certificate_db(csv_path=DATA_PATH):
 
 def extract_text_from_uploaded_file(uploaded_file):
     try:
-        image = Image.open(uploaded_file)
-        text = pytesseract.image_to_string(image)
+        image = Image.open(uploaded_file).convert("L")  # Convert to grayscale
+        text = pytesseract.image_to_string(image, lang='eng')
         return text
     except Exception as e:
         st.error(f"OCR failed: {e}")
@@ -30,7 +30,7 @@ def verify_certificate(extracted_text, cert_db):
     for _, row in cert_db.iterrows():
         cid = str(row['certificate_id'])
         name = str(row['name'])
-        if cid in extracted_text and name.lower() in extracted_text.lower():
+        if cid in extracted_text and fuzz.partial_ratio(name.lower(), extracted_text.lower()) > 80:
             return row.to_dict(), True
     return None, False
 
@@ -48,14 +48,15 @@ if uploaded_file:
     st.image(uploaded_file, caption="Uploaded Certificate", use_column_width=True)
     with st.spinner("Extracting text via OCR..."):
         extracted_text = extract_text_from_uploaded_file(uploaded_file)
+
     st.subheader("Extracted Text")
-    st.write(extracted_text)
+    st.text_area("OCR Output", extracted_text, height=200)
 
     if not cert_db.empty:
         result, is_valid = verify_certificate(extracted_text, cert_db)
         if is_valid:
             st.success("✅ Certificate Verified!")
-            st.json(result)
+            st.table(pd.DataFrame([result]))
         else:
             st.error("❌ Certificate not found or appears invalid.")
     else:
